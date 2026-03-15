@@ -1,5 +1,5 @@
+import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { BrowserWindow } from "electron";
 import type { OrderRecord, PrintTemplateRecord } from "./types";
 
@@ -17,11 +17,28 @@ const escapeHtml = (value: string): string =>
     "&#39;"
   );
 
+const getImageMimeByPath = (imagePath: string): string => {
+  const ext = path.extname(imagePath).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  return "image/jpeg";
+};
+
+const readImageAsDataUrl = (imagePath: string): string | null => {
+  try {
+    const file = fs.readFileSync(imagePath);
+    const mime = getImageMimeByPath(imagePath);
+    return `data:${mime};base64,${file.toString("base64")}`;
+  } catch {
+    return null;
+  }
+};
+
 const renderTemplate = (template: PrintTemplateRecord, order: OrderRecord): string => {
-  const imageBlock = order.product_image_path
-    ? `<tr><th>产品图片</th><td><img class="product-image" src="${pathToFileURL(
-        path.resolve(order.product_image_path)
-      ).toString()}" /></td></tr>`
+  const imageDataUrl = order.product_image_path ? readImageAsDataUrl(path.resolve(order.product_image_path)) : null;
+  const imageBlock = imageDataUrl
+    ? `<tr><th>产品图片</th><td><img class="product-image" src="${imageDataUrl}" /></td></tr>`
     : "";
 
   let html = template.html.replace("{{image_block}}", imageBlock);
