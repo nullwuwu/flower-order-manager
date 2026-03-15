@@ -25,6 +25,15 @@ npm run pack:win
 npm run pack:mac
 ```
 
+## GitHub Release 构建
+- 已内置 GitHub Actions：`/.github/workflows/release.yml`
+- 触发方式：
+  - 手动触发：GitHub `Actions -> Build Release -> Run workflow`
+  - 标签触发：推送 `v*` 标签（例如 `v1.0.0`）
+- 产物：
+  - Windows：`nsis` 安装包（`x64 + ia32`，用于 Win7 兼容主路线）
+  - macOS：`dmg`（测试用途）
+
 ## 关键规则
 - 订单 ID：`YYYYMMDD-####`，按自然日重置流水号
 - 配送时间为“具体时间”时，`delivery_time_exact` 必填
