@@ -107,4 +107,15 @@ jobs:
         run: |
           TAG_NAME="${GITHUB_REF#refs/tags/}"
           gh release view "$TAG_NAME" >/dev/null 2>&1 || gh release create "$TAG_NAME" --generate-notes --title "$TAG_NAME"
-          gh release upload "$TAG_NAME" artifacts/windows/* artifacts/macos/* --clobber
+          for i in 1 2 3; do
+            gh release upload "$TAG_NAME" \
+              artifacts/windows/*.exe \
+              artifacts/windows/*.yml \
+              artifacts/windows/*.blockmap \
+              artifacts/macos/*.dmg \
+              artifacts/macos/*.yml \
+              artifacts/macos/*.blockmap \
+              --clobber && break
+            echo "upload retry $i failed, wait and retry..."
+            sleep 5
+          done
