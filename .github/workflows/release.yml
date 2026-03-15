@@ -107,15 +107,13 @@ jobs:
         run: |
           TAG_NAME="${GITHUB_REF#refs/tags/}"
           gh release view "$TAG_NAME" >/dev/null 2>&1 || gh release create "$TAG_NAME" --generate-notes --title "$TAG_NAME"
+          mapfile -t FILES < <(find artifacts/windows artifacts/macos -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.yml" -o -name "*.blockmap" \) ! -name "builder-debug.yml")
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No release files found."
+            exit 1
+          fi
           for i in 1 2 3; do
-            gh release upload "$TAG_NAME" \
-              artifacts/windows/*.exe \
-              artifacts/windows/*.yml \
-              artifacts/windows/*.blockmap \
-              artifacts/macos/*.dmg \
-              artifacts/macos/*.yml \
-              artifacts/macos/*.blockmap \
-              --clobber && break
+            gh release upload "$TAG_NAME" "${FILES[@]}" --clobber && break
             echo "upload retry $i failed, wait and retry..."
             sleep 5
           done
