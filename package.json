@@ -48,6 +48,9 @@
       ],
       "publisherName": "Flower Order Manager"
     },
+    "nsis": {
+      "deleteAppDataOnUninstall": true
+    },
     "mac": {
       "icon": "build-resources/icon.icns",
       "target": [
