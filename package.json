@@ -11,7 +11,7 @@
     "dev:renderer": "node ./node_modules/vite/bin/vite.js",
     "dev:electron:tsc": "node ./node_modules/typescript/bin/tsc -p tsconfig.electron.json --watch",
     "dev:electron:run": "node ./node_modules/wait-on/bin/wait-on tcp:5173 dist-electron/main/main.js && node ./node_modules/electron/cli.js .",
-    "build:renderer": "node ./node_modules/vite/bin/vite.js build",
+    "build:renderer": "node ./node_modules/vite/bin/vite.js build --base=./",
     "build:electron": "node ./node_modules/typescript/bin/tsc -p tsconfig.electron.json",
     "build": "npm run build:renderer && npm run build:electron",
     "start": "node ./node_modules/electron/cli.js .",
