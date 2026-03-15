@@ -19,6 +19,7 @@ let db: DatabaseService;
 let imageSaveDir = "";
 
 const isDev = !app.isPackaged;
+const APP_USER_MODEL_ID = "com.flower.order.manager";
 
 const localizeErrorMessage = (error: unknown, fallback = "操作失败"): string => {
   const raw = error instanceof Error ? error.message : String(error || fallback);
@@ -35,12 +36,25 @@ const localizeErrorMessage = (error: unknown, fallback = "操作失败"): string
   return raw || fallback;
 };
 
+const getWindowIconPath = (): string | undefined => {
+  const devPath = path.join(app.getAppPath(), "build-resources", "icon.png");
+  const packagedPath = path.join(process.resourcesPath, "icon.png");
+  if (!app.isPackaged && fs.existsSync(devPath)) {
+    return devPath;
+  }
+  if (fs.existsSync(packagedPath)) {
+    return packagedPath;
+  }
+  return undefined;
+};
+
 const createWindow = async (): Promise<void> => {
   mainWindow = new BrowserWindow({
     width: 1320,
     height: 860,
     minWidth: 1120,
     minHeight: 760,
+    icon: getWindowIconPath(),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -202,6 +216,7 @@ const registerIpc = (): void => {
 
 const bootstrap = async (): Promise<void> => {
   await app.whenReady();
+  app.setAppUserModelId(APP_USER_MODEL_ID);
   db = new DatabaseService(app.getPath("userData"));
   await db.init();
   imageSaveDir = (await db.getSetting("image_save_dir")) || db.imageDir;

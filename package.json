@@ -27,10 +27,17 @@
       "node_modules/**",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "build-resources/icon.png",
+        "to": "icon.png"
+      }
+    ],
     "directories": {
       "buildResources": "build-resources"
     },
     "win": {
+      "icon": "build-resources/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -39,9 +46,11 @@
             "ia32"
           ]
         }
-      ]
+      ],
+      "publisherName": "Flower Order Manager"
     },
     "mac": {
+      "icon": "build-resources/icon.icns",
       "target": [
         "dmg"
       ]
