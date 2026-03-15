@@ -16,7 +16,7 @@
     "build": "npm run build:renderer && npm run build:electron",
     "start": "node ./node_modules/electron/cli.js .",
     "test": "node ./node_modules/vitest/vitest.mjs run",
-    "pack:win": "npm run build && node ./node_modules/electron-builder/cli.js --win nsis --x64 --ia32",
+    "pack:win": "npm run build && node ./node_modules/electron-builder/cli.js --win nsis --x64",
     "pack:mac": "npm run build && node ./node_modules/electron-builder/cli.js --mac dmg"
   },
   "build": {
@@ -40,10 +40,9 @@
       "icon": "build-resources/icon.ico",
       "target": [
         {
-          "target": "nsis",
-          "arch": [
-            "x64",
-            "ia32"
+            "target": "nsis",
+            "arch": [
+            "x64"
           ]
         }
       ],

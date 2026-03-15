@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-windows:
-    name: Build Windows (Win7 compatible)
+    name: Build Windows x64 (Win7 compatible)
     runs-on: windows-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -29,10 +29,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and package (Windows x64 + ia32)
+      - name: Build and package (Windows x64)
         run: |
           npm run build
-          npx electron-builder --win nsis --x64 --ia32 --publish never
+          npx electron-builder --win nsis --x64 --publish never
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
