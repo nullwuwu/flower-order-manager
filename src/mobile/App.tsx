@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import dayjs from "dayjs";
-import { Button, Card, DatePicker, Form, Input, Select, Space, Typography, message } from "antd";
+import { Button, Card, DatePicker, Form, Input, Select, Space, Typography, Upload, message } from "antd";
+import type { UploadFile } from "antd/es/upload/interface";
 import type { DeliverySlot } from "../types";
 
 const { Title, Text } = Typography;
@@ -40,11 +41,15 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return raw || fallback;
 };
 
+interface LocalImage {
+  uid: string;
+  dataUrl: string;
+}
+
 const MobileApp = (): JSX.Element => {
   const [submitting, setSubmitting] = useState(false);
   const [printing, setPrinting] = useState(false);
-  const [preview, setPreview] = useState("");
-  const [imageData, setImageData] = useState("");
+  const [images, setImages] = useState<LocalImage[]>([]);
   const [submittedOrder, setSubmittedOrder] = useState<{ id: number; orderNo: string } | null>(null);
   const apiBase = useMemo(() => getApiBase(), []);
 
@@ -62,7 +67,7 @@ const MobileApp = (): JSX.Element => {
         buyer_info: values.buyer_info,
         product_description: values.product_description,
         card_message: values.card_message || "",
-        image_data_url: imageData || ""
+        image_data_urls: images.map((item) => item.dataUrl)
       };
 
       const res = await fetch(`${apiBase}/api/mobile/orders`, {
@@ -98,10 +103,19 @@ const MobileApp = (): JSX.Element => {
 
   const handleContinue = (): void => {
     form.resetFields();
-    setImageData("");
-    setPreview("");
+    setImages([]);
     setSubmittedOrder(null);
   };
+
+  const disablePastDate = (current: dayjs.Dayjs): boolean =>
+    current.startOf("day").isBefore(dayjs().startOf("day"));
+
+  const imageFileList: UploadFile[] = images.map((item) => ({
+    uid: item.uid,
+    name: `${item.uid}.png`,
+    status: "done",
+    url: item.dataUrl
+  }));
 
   const handlePrintNow = async (): Promise<void> => {
     if (!submittedOrder) return;
@@ -152,7 +166,7 @@ const MobileApp = (): JSX.Element => {
               name="delivery_date"
               rules={[{ required: true, message: "请选择配送日期" }]}
             >
-              <DatePicker style={{ width: "100%" }} placeholder="" />
+              <DatePicker style={{ width: "100%" }} placeholder="" disabledDate={disablePastDate} />
             </Form.Item>
             <Form.Item
               label="配送时间"
@@ -183,18 +197,28 @@ const MobileApp = (): JSX.Element => {
 
         <Card className="mobile-card" title="商品与贺卡">
           <Form.Item label="产品图片">
-            <input
-              type="file"
+            <Upload
+              listType="picture-card"
               accept="image/*"
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
+              multiple
+              fileList={imageFileList}
+              beforeUpload={async (file) => {
                 const dataUrl = await fileToDataUrl(file);
-                setImageData(dataUrl);
-                setPreview(dataUrl);
+                setImages((prev) => [
+                  ...prev,
+                  {
+                    uid: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    dataUrl
+                  }
+                ]);
+                return false;
               }}
-            />
-            {preview ? <img className="mobile-preview" src={preview} alt="预览" /> : null}
+              onRemove={(file) => {
+                setImages((prev) => prev.filter((item) => item.uid !== file.uid));
+              }}
+            >
+              + 添加图片
+            </Upload>
           </Form.Item>
           <Form.Item label="产品描述" name="product_description">
             <Input.TextArea rows={3} />

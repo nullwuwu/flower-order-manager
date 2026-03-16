@@ -11,6 +11,7 @@ import type { OrderInput, PrintTemplateInput } from "./types";
 const MOBILE_PORT = 17630;
 const RETENTION_DAYS = 7;
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 let mainWindow: BrowserWindow | null = null;
 let mobileUrl = "";
@@ -95,6 +96,15 @@ const saveImageFromDataUrl = async (dataUrl: string): Promise<string> => {
   return output;
 };
 
+const detectImageMime = (filePath: string): string => {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  if (ext === ".bmp") return "image/bmp";
+  return "image/png";
+};
+
 const printSingleOrder = async (orderId: number, templateId?: number): Promise<void> => {
   const order = await db.getOrderById(orderId);
   if (!order) {
@@ -128,10 +138,20 @@ const registerIpc = (): void => {
     mainWindow?.webContents.send("orders:updated");
     return created;
   });
+  ipcMain.handle("orders:update", async (_event, args: { id: number; payload: OrderInput }) => {
+    const updated = await db.updateOrder(args.id, args.payload);
+    mainWindow?.webContents.send("orders:updated");
+    return updated;
+  });
 
   ipcMain.handle("orders:unprinted-count", async () => db.countUnprintedOrders());
 
   ipcMain.handle("images:save", async (_event, dataUrl: string) => saveImageFromDataUrl(dataUrl));
+  ipcMain.handle("images:read-data-url", async (_event, filePath: string) => {
+    const content = await fs.promises.readFile(filePath);
+    const mime = detectImageMime(filePath);
+    return `data:${mime};base64,${content.toString("base64")}`;
+  });
   ipcMain.handle("images:get-save-dir", async () => imageSaveDir);
   ipcMain.handle("images:choose-save-dir", async () => {
     const options = {
@@ -255,24 +275,40 @@ const bootstrap = async (): Promise<void> => {
   }, RETENTION_INTERVAL_MS);
 };
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
-});
-
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow().catch(() => undefined);
-  }
-});
-
-app.on("before-quit", () => {
-  db?.close();
-});
-
-bootstrap().catch((error) => {
-  // eslint-disable-next-line no-console
-  console.error(error);
+if (!gotSingleInstanceLock) {
   app.quit();
-});
+} else {
+  app.on("second-instance", () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") {
+      app.quit();
+    }
+  });
+
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow().catch(() => undefined);
+    } else {
+      mainWindow?.show();
+      mainWindow?.focus();
+    }
+  });
+
+  app.on("before-quit", () => {
+    db?.close();
+  });
+
+  bootstrap().catch((error) => {
+    // eslint-disable-next-line no-console
+    console.error(error);
+    app.quit();
+  });
+}

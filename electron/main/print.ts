@@ -36,10 +36,16 @@ const readImageAsDataUrl = (imagePath: string): string | null => {
 };
 
 const renderTemplate = (template: PrintTemplateRecord, order: OrderRecord): string => {
-  const imageDataUrl = order.product_image_path ? readImageAsDataUrl(path.resolve(order.product_image_path)) : null;
-  const imageBlock = imageDataUrl
-    ? `<tr><th>产品图片</th><td><img class="product-image" src="${imageDataUrl}" /></td></tr>`
-    : "";
+  const imageItems = (order.product_image_paths ?? [])
+    .map((imagePath) => readImageAsDataUrl(path.resolve(imagePath)))
+    .filter((x): x is string => Boolean(x));
+  const imageGridClass = imageItems.length >= 2 ? "product-image-grid two-up" : "product-image-grid";
+  const imageBlock =
+    imageItems.length > 0
+      ? `<tr><th>产品图片</th><td><div class="${imageGridClass}">${imageItems
+          .map((src) => `<img class="product-image" src="${src}" />`)
+          .join("")}</div></td></tr>`
+      : "";
 
   let html = template.html.replace("{{image_block}}", imageBlock);
   const replacements: Record<string, string> = {
@@ -63,6 +69,22 @@ const renderTemplate = (template: PrintTemplateRecord, order: OrderRecord): stri
       <head>
         <meta charset="UTF-8" />
         <style>${template.css}</style>
+        <style>
+          .order-table th { width: 82px !important; }
+          .product-image-grid {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+          }
+          .product-image-grid.two-up {
+            flex-wrap: nowrap;
+          }
+          .product-image-grid.two-up .product-image {
+            flex: 1 1 0;
+            min-width: 0;
+            width: auto !important;
+          }
+        </style>
       </head>
       <body>${html}</body>
     </html>

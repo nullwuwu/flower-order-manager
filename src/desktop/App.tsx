@@ -25,6 +25,7 @@ import {
 import zhCN from "antd/locale/zh_CN";
 import { DragOutlined, HolderOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
+import type { UploadFile } from "antd/es/upload/interface";
 import type { DeliverySlot, OrderInput, OrderRecord, PrintTemplateRecord } from "../types";
 
 const { Header, Content } = Layout;
@@ -57,6 +58,17 @@ interface TemplateVisualConfig {
   rows: TemplateRow[];
 }
 
+interface LocalImage {
+  uid: string;
+  dataUrl: string;
+}
+
+interface ExistingImage {
+  uid: string;
+  path: string;
+  dataUrl: string;
+}
+
 const BUILTIN_SAMPLE_IMAGE =
   "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 420 300'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23ffe6ee'/%3E%3Cstop offset='100%25' stop-color='%23fff7da'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='420' height='300' fill='url(%23g)'/%3E%3Ccircle cx='120' cy='170' r='70' fill='%23ff6b8a'/%3E%3Ccircle cx='210' cy='130' r='60' fill='%23ff8ea6'/%3E%3Ccircle cx='285' cy='190' r='65' fill='%23ffb3c2'/%3E%3Crect x='200' y='190' width='10' height='90' rx='4' fill='%235a8f4d'/%3E%3Cpath d='M205 210 C245 200,260 230,210 242 Z' fill='%2377b85f'/%3E%3Ctext x='24' y='40' font-size='24' fill='%23644' font-family='Microsoft YaHei, sans-serif'%3E%E8%8A%B1%E6%9D%9F%E7%A4%BA%E4%BE%8B%E5%9B%BE%3C/text%3E%3C/svg%3E";
 
@@ -75,14 +87,14 @@ const DEFAULT_ROWS: TemplateRow[] = [
   { key: "delivery_slot", label: "配送时间", enabled: true },
   { key: "receiver_info", label: "收货人信息", enabled: true },
   { key: "buyer_info", label: "订货人信息", enabled: true },
+  { key: "image_block", label: "产品图片", enabled: true },
   { key: "product_description", label: "产品描述", enabled: true },
-  { key: "card_message", label: "贺卡内容", enabled: true },
-  { key: "image_block", label: "产品图片", enabled: true }
+  { key: "card_message", label: "贺卡内容", enabled: true }
 ];
 
 const DEFAULT_VISUAL_CONFIG: TemplateVisualConfig = {
-  title: "花店订单",
-  fontSize: 14,
+  title: "倾城花艺",
+  fontSize: 16,
   lineGap: 1.5,
   imageWidth: 360,
   imageHeight: 260,
@@ -96,7 +108,7 @@ const INITIAL_FORM: OrderInput = {
   delivery_time_exact: "",
   receiver_info: "",
   buyer_info: "",
-  product_image_path: "",
+  product_image_paths: [],
   product_description: "",
   card_message: ""
 };
@@ -108,7 +120,7 @@ const SAMPLE_ORDER: Omit<OrderRecord, "id" | "created_at" | "updated_at" | "prin
   delivery_time_exact: "10:30",
   receiver_info: "张三 / 13800000000 / 上海市浦东新区",
   buyer_info: "李四 / 13900000000",
-  product_image_path: "",
+  product_image_paths: [],
   product_description: "红玫瑰 11 支，尤加利叶配花",
   card_message: "生日快乐，天天开心"
 };
@@ -173,8 +185,11 @@ body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; margin: 0; col
 h1 { margin: 0 0 10px; font-size: 22px; }
 .order-table { width: 100%; border-collapse: collapse; font-size: ${config.fontSize}px; line-height: ${config.lineGap}; }
 .order-table th, .order-table td { border: 1px solid #ddd; padding: 7px 8px; vertical-align: top; text-align: left; }
-.order-table th { width: 96px; color: #555; background: #fafafa; white-space: nowrap; }
-.product-image { margin-top: 10px; width: ${config.imageWidth}px; height: ${config.imageHeight}px; object-fit: contain; border: 1px solid #ddd; }
+.order-table th { width: 82px; color: #555; background: #fafafa; white-space: nowrap; }
+.product-image-grid { display: flex; gap: 8px; align-items: flex-start; }
+.product-image-grid.two-up { flex-wrap: nowrap; }
+.product-image-grid.two-up .product-image { flex: 1 1 0; width: auto; min-width: 0; }
+.product-image { margin-top: 2px; width: ${config.imageWidth}px; height: ${config.imageHeight}px; object-fit: contain; border: 1px solid #ddd; }
 `.trim();
 
   return { html, css };
@@ -184,12 +199,18 @@ const App = (): JSX.Element => {
   const [tab, setTab] = useState<TabKey>("orders");
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [selectedOrderIds, setSelectedOrderIds] = useState<number[]>([]);
+  const [detailOrder, setDetailOrder] = useState<OrderRecord | null>(null);
+  const [detailImageDataUrls, setDetailImageDataUrls] = useState<string[]>([]);
+  const [editingOrder, setEditingOrder] = useState<OrderRecord | null>(null);
+  const [editForm, setEditForm] = useState<OrderInput>(INITIAL_FORM);
+  const [editExistingImages, setEditExistingImages] = useState<ExistingImage[]>([]);
+  const [editNewImages, setEditNewImages] = useState<LocalImage[]>([]);
   const [form, setForm] = useState<OrderInput>(INITIAL_FORM);
   const [templateConfig, setTemplateConfig] = useState<TemplateVisualConfig>(DEFAULT_VISUAL_CONFIG);
   const [editingTemplate, setEditingTemplate] = useState<PrintTemplateRecord | null>(null);
   const [enableCodeEdit, setEnableCodeEdit] = useState(false);
   const [unprintedCount, setUnprintedCount] = useState(0);
-  const [imageDataUrl, setImageDataUrl] = useState("");
+  const [images, setImages] = useState<LocalImage[]>([]);
   const [mobileUrl, setMobileUrl] = useState("");
   const [mobileQrDataUrl, setMobileQrDataUrl] = useState("");
   const [imageSaveDir, setImageSaveDir] = useState("");
@@ -223,6 +244,22 @@ const App = (): JSX.Element => {
       return "打印机设置无效，请检查系统打印配置";
     }
     return extracted || fallback;
+  };
+
+  const disablePastDate = (current: dayjs.Dayjs): boolean =>
+    current.startOf("day").isBefore(dayjs().startOf("day"));
+
+  const loadImageDataUrls = async (paths: string[]): Promise<string[]> => {
+    const loaded = await Promise.all(
+      paths.map(async (imgPath) => {
+        try {
+          return await window.api.readImageDataUrl(imgPath);
+        } catch {
+          return "";
+        }
+      })
+    );
+    return loaded.filter(Boolean);
   };
 
   const loadTemplate = async (): Promise<void> => {
@@ -267,10 +304,10 @@ const App = (): JSX.Element => {
         ...form
       };
       if (payload.delivery_slot !== "具体时间") payload.delivery_time_exact = "";
-      payload.product_image_path = imageDataUrl ? await window.api.saveImage(imageDataUrl) : "";
+      payload.product_image_paths = await Promise.all(images.map((item) => window.api.saveImage(item.dataUrl)));
       await window.api.createOrder(payload);
       setForm(INITIAL_FORM);
-      setImageDataUrl("");
+      setImages([]);
       await loadOrders();
       setTab("orders");
       message.success("订单已保存");
@@ -328,6 +365,71 @@ const App = (): JSX.Element => {
       message.success("模板已保存");
     } catch (error) {
       message.error(getErrorMessage(error, "模板保存失败"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleOpenDetail = async (order: OrderRecord): Promise<void> => {
+    setDetailOrder(order);
+    const imageUrls = await loadImageDataUrls(order.product_image_paths ?? []);
+    setDetailImageDataUrls(imageUrls);
+  };
+
+  const handleOpenEdit = async (order: OrderRecord): Promise<void> => {
+    setEditingOrder(order);
+    setEditForm({
+      delivery_date: order.delivery_date,
+      delivery_slot: order.delivery_slot,
+      delivery_time_exact: order.delivery_time_exact ?? "",
+      receiver_info: order.receiver_info,
+      buyer_info: order.buyer_info,
+      product_image_paths: order.product_image_paths ?? [],
+      product_description: order.product_description,
+      card_message: order.card_message ?? ""
+    });
+    const existingImages = (await Promise.all(
+      (order.product_image_paths ?? []).map(async (imgPath) => {
+        try {
+          const dataUrl = await window.api.readImageDataUrl(imgPath);
+          return {
+            uid: `ex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            path: imgPath,
+            dataUrl
+          };
+        } catch {
+          return null;
+        }
+      })
+    )) as Array<ExistingImage | null>;
+    setEditExistingImages(existingImages.filter((item): item is ExistingImage => Boolean(item)));
+    setEditNewImages([]);
+  };
+
+  const handleSaveOrderEdit = async (): Promise<void> => {
+    if (!editingOrder) return;
+    setBusy(true);
+    try {
+      if (!String(editForm.delivery_date || "").trim()) {
+        message.error("配送日期必填");
+        return;
+      }
+      const payload: OrderInput = {
+        ...editForm
+      };
+      if (payload.delivery_slot !== "具体时间") {
+        payload.delivery_time_exact = "";
+      }
+      const savedNewImagePaths = await Promise.all(editNewImages.map((item) => window.api.saveImage(item.dataUrl)));
+      payload.product_image_paths = [...editExistingImages.map((item) => item.path), ...savedNewImagePaths];
+      await window.api.updateOrder(editingOrder.id, payload);
+      setEditingOrder(null);
+      setEditExistingImages([]);
+      setEditNewImages([]);
+      await loadOrders();
+      message.success("订单已更新");
+    } catch (error) {
+      message.error(getErrorMessage(error, "订单更新失败"));
     } finally {
       setBusy(false);
     }
@@ -421,7 +523,7 @@ const App = (): JSX.Element => {
         </head>
         <body>
           <div class="sheet">
-            <h1>花店订单二维码录入</h1>
+            <h1>倾城花艺二维码录入</h1>
             <div class="panel">
               <img src="${mobileQrDataUrl}" alt="二维码录入" />
               <div class="url">${mobileUrl || ""}</div>
@@ -435,12 +537,13 @@ const App = (): JSX.Element => {
     printWindow.print();
   };
 
-  const onPickImage = (file: File | null): void => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setImageDataUrl(String(reader.result || ""));
-    reader.readAsDataURL(file);
-  };
+  const toDataUrl = async (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("读取图片失败"));
+      reader.readAsDataURL(file);
+    });
 
   const startResizeImage = (event: React.MouseEvent<HTMLDivElement>): void => {
     event.preventDefault();
@@ -477,6 +580,15 @@ const App = (): JSX.Element => {
     return String(SAMPLE_ORDER[key as keyof typeof SAMPLE_ORDER] ?? "");
   };
 
+  const getOrderCellValue = (order: OrderRecord, key: TemplateRow["key"]): string => {
+    if (key === "delivery_slot") {
+      return [order.delivery_slot, order.delivery_time_exact ?? ""].join(" ").trim();
+    }
+    if (key === "image_block") return "";
+    if (key === "order_id") return order.order_id;
+    return String(order[key as keyof OrderRecord] ?? "");
+  };
+
   const orderColumns: ColumnsType<OrderRecord> = [
     { title: "订单号", dataIndex: "order_id", key: "order_id", width: 140 },
     {
@@ -490,13 +602,43 @@ const App = (): JSX.Element => {
     {
       title: "操作",
       key: "actions",
-      width: 110,
-      render: (_, item) => (
-        <Button size="small" onClick={() => void handleOnePrint(item.id)} disabled={busy}>
-          打印
-        </Button>
+      width: 220,
+          render: (_, item) => (
+        <Space size={6}>
+          <Button size="small" onClick={() => void handleOpenDetail(item)} disabled={busy}>
+            详情
+          </Button>
+          <Button size="small" onClick={() => void handleOpenEdit(item)} disabled={busy}>
+            编辑
+          </Button>
+          <Button size="small" onClick={() => void handleOnePrint(item.id)} disabled={busy}>
+            打印
+          </Button>
+        </Space>
       )
     }
+  ];
+
+  const createFileList: UploadFile[] = images.map((item) => ({
+    uid: item.uid,
+    name: `${item.uid}.png`,
+    status: "done",
+    url: item.dataUrl
+  }));
+
+  const editFileList: UploadFile[] = [
+    ...editExistingImages.map((item) => ({
+      uid: item.uid,
+      name: item.path.split(/[\\/]/).pop() || "image",
+      status: "done" as const,
+      url: item.dataUrl
+    })),
+    ...editNewImages.map((item) => ({
+      uid: item.uid,
+      name: `${item.uid}.png`,
+      status: "done" as const,
+      url: item.dataUrl
+    }))
   ];
 
   return (
@@ -524,10 +666,11 @@ const App = (): JSX.Element => {
     >
       <Layout className="antd-layout">
         <Header className="antd-header">
-          <Title level={4} style={{ color: "#fff", margin: 0 }}>
-            花店订单管理系统
+          <div className="header-side" />
+          <Title level={4} className="header-title">
+            倾城花艺
           </Title>
-          <Space>
+          <Space className="header-tags">
             <Tag color="blue">订单总数 {orders.length}</Tag>
             <Tag color="gold">未打印 {unprintedCount}</Tag>
             <Tag color="green">保留 {retentionDays} 天</Tag>
@@ -580,6 +723,7 @@ const App = (): JSX.Element => {
                         <DatePicker
                           style={{ width: "100%" }}
                           value={form.delivery_date ? dayjs(form.delivery_date) : null}
+                          disabledDate={disablePastDate}
                           placeholder=""
                           format="YYYY-MM-DD"
                           onChange={(_, dateString) =>
@@ -622,16 +766,26 @@ const App = (): JSX.Element => {
                     <Form.Item label="产品图片">
                       <Upload
                         accept="image/*"
-                        maxCount={1}
-                        showUploadList={false}
-                        beforeUpload={(file) => {
-                          onPickImage(file);
+                        listType="picture-card"
+                        multiple
+                        fileList={createFileList}
+                        beforeUpload={async (file) => {
+                          const dataUrl = await toDataUrl(file);
+                          setImages((prev) => [
+                            ...prev,
+                            {
+                              uid: `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                              dataUrl
+                            }
+                          ]);
                           return false;
                         }}
+                        onRemove={(file) => {
+                          setImages((prev) => prev.filter((item) => item.uid !== file.uid));
+                        }}
                       >
-                        <Button>选择图片</Button>
+                        + 添加图片
                       </Upload>
-                      {imageDataUrl ? <img className="image-preview" src={imageDataUrl} alt="产品预览" /> : null}
                     </Form.Item>
                     <Form.Item label="产品描述">
                       <Input.TextArea
@@ -661,7 +815,7 @@ const App = (): JSX.Element => {
                 <Card className="surface-card" bordered={false}>
                   <Title level={5}>模板画布（可直接拖拽排序与改图尺寸）</Title>
                   <div className="design-canvas">
-                    <h2>{templateConfig.title || "花店订单"}</h2>
+                    <h2>{templateConfig.title || "倾城花艺"}</h2>
                     <table
                       className="template-live-table"
                       style={{
@@ -738,7 +892,7 @@ const App = (): JSX.Element => {
                         max={24}
                         value={templateConfig.fontSize}
                         onChange={(value) =>
-                          setTemplateConfig((s) => ({ ...s, fontSize: Number(value || 14) }))
+                          setTemplateConfig((s) => ({ ...s, fontSize: Number(value || 16) }))
                         }
                       />
                     </Form.Item>
@@ -857,6 +1011,182 @@ const App = (): JSX.Element => {
             }
           ]}
         />
+            <Modal
+              title="订单详情"
+              open={Boolean(detailOrder)}
+              onCancel={() => {
+                setDetailOrder(null);
+                setDetailImageDataUrls([]);
+              }}
+              footer={
+                <Button
+                  onClick={() => {
+                    setDetailOrder(null);
+                    setDetailImageDataUrls([]);
+                  }}
+                >
+                  关闭
+                </Button>
+              }
+              width={720}
+            >
+              {detailOrder ? (
+                <Space direction="vertical" style={{ width: "100%" }} size={12}>
+                  <div className="design-canvas">
+                    <h2>{templateConfig.title || "倾城花艺"}</h2>
+                    <table
+                      className="template-live-table"
+                      style={{
+                        fontSize: `${templateConfig.fontSize}px`,
+                        lineHeight: String(templateConfig.lineGap)
+                      }}
+                    >
+                      <tbody>
+                        {templateConfig.rows.map((row) =>
+                          row.enabled ? (
+                            <tr key={row.key}>
+                              <th>{row.label}</th>
+                              <td>
+                                {row.key === "image_block" ? (
+                                  <div
+                                    className={`detail-image-block${detailImageDataUrls.length >= 2 ? " two-up" : ""}`}
+                                  >
+                                    {detailImageDataUrls.length > 0 ? (
+                                      detailImageDataUrls.map((src, idx) => (
+                                        <img
+                                          key={`${idx}-${src.slice(0, 24)}`}
+                                          className="detail-template-image"
+                                          style={{
+                                            width:
+                                              detailImageDataUrls.length >= 2
+                                                ? "calc((100% - 8px) / 2)"
+                                                : templateConfig.imageWidth,
+                                            height: templateConfig.imageHeight
+                                          }}
+                                          src={src}
+                                          alt={`产品图片${idx + 1}`}
+                                        />
+                                      ))
+                                    ) : (
+                                      <Text type="secondary">无图片</Text>
+                                    )}
+                                  </div>
+                                ) : (
+                                  getOrderCellValue(detailOrder, row.key)
+                                )}
+                              </td>
+                            </tr>
+                          ) : null
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <Text type="secondary">打印次数：{detailOrder.print_count}</Text>
+                </Space>
+              ) : null}
+            </Modal>
+            <Modal
+              title="编辑订单"
+              open={Boolean(editingOrder)}
+              onCancel={() => {
+                setEditingOrder(null);
+                setEditExistingImages([]);
+                setEditNewImages([]);
+              }}
+              onOk={() => void handleSaveOrderEdit()}
+              confirmLoading={busy}
+              okText="保存"
+              cancelText="取消"
+              width={760}
+            >
+              <Form layout="vertical">
+                <RowBlock>
+                  <Form.Item label="配送日期" required>
+                    <DatePicker
+                      style={{ width: "100%" }}
+                      value={editForm.delivery_date ? dayjs(editForm.delivery_date) : null}
+                      disabledDate={disablePastDate}
+                      placeholder=""
+                      format="YYYY-MM-DD"
+                      onChange={(_, dateString) =>
+                        setEditForm((s) => ({
+                          ...s,
+                          delivery_date: (Array.isArray(dateString) ? dateString[0] : dateString) || ""
+                        }))
+                      }
+                    />
+                  </Form.Item>
+                  <Form.Item label="配送时间">
+                    <Select
+                      value={editForm.delivery_slot}
+                      allowClear
+                      options={DELIVERY_SLOTS.map((slot) => ({ value: slot, label: slot }))}
+                      onChange={(value) =>
+                        setEditForm((s) => ({ ...s, delivery_slot: (value as DeliverySlot) || "" }))
+                      }
+                    />
+                  </Form.Item>
+                  <Form.Item label="具体时间">
+                    <Input
+                      value={editForm.delivery_time_exact ?? ""}
+                      onChange={(e) => setEditForm((s) => ({ ...s, delivery_time_exact: e.target.value }))}
+                    />
+                  </Form.Item>
+                </RowBlock>
+                <Form.Item label="收货人信息">
+                  <Input
+                    value={editForm.receiver_info}
+                    onChange={(e) => setEditForm((s) => ({ ...s, receiver_info: e.target.value }))}
+                  />
+                </Form.Item>
+                <Form.Item label="订货人信息">
+                  <Input
+                    value={editForm.buyer_info}
+                    onChange={(e) => setEditForm((s) => ({ ...s, buyer_info: e.target.value }))}
+                  />
+                </Form.Item>
+                <Form.Item label="产品图片">
+                  <Upload
+                    accept="image/*"
+                    listType="picture-card"
+                    multiple
+                    fileList={editFileList}
+                    beforeUpload={async (file) => {
+                      const dataUrl = await toDataUrl(file);
+                      setEditNewImages((prev) => [
+                        ...prev,
+                        {
+                          uid: `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                          dataUrl
+                        }
+                      ]);
+                      return false;
+                    }}
+                    onRemove={(file) => {
+                      setEditExistingImages((prev) => prev.filter((item) => item.uid !== file.uid));
+                      setEditNewImages((prev) => prev.filter((item) => item.uid !== file.uid));
+                    }}
+                  >
+                    + 添加图片
+                  </Upload>
+                  <Text type="secondary">支持多图，点击缩略图右上角可删除。</Text>
+                </Form.Item>
+                <Form.Item label="产品描述">
+                  <Input.TextArea
+                    rows={3}
+                    value={editForm.product_description}
+                    onChange={(e) => setEditForm((s) => ({ ...s, product_description: e.target.value }))}
+                  />
+                </Form.Item>
+                <Form.Item label="贺卡内容">
+                  <Input.TextArea
+                    rows={3}
+                    value={editForm.card_message ?? ""}
+                    onChange={(e) => setEditForm((s) => ({ ...s, card_message: e.target.value }))}
+                  />
+                </Form.Item>
+              </Form>
+            </Modal>
           </div>
         </Content>
       </Layout>

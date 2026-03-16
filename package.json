@@ -1,6 +1,6 @@
 {
   "name": "flower-order-manager",
-  "version": "1.0.0",
+  "version": "1.0.9",
   "description": "Flower order management desktop app",
   "main": "dist-electron/main/main.js",
   "author": "codex",
@@ -40,8 +40,8 @@
       "icon": "build-resources/icon.ico",
       "target": [
         {
-            "target": "nsis",
-            "arch": [
+          "target": "nsis",
+          "arch": [
             "x64"
           ]
         }

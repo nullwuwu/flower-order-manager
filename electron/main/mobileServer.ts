@@ -54,10 +54,20 @@ export const startMobileServer = async (
 
   app.post("/api/mobile/orders", async (req, res) => {
     try {
-      const body = req.body as Partial<OrderInput> & { image_data_url?: string };
-      let imagePath: string | null = null;
-      if (typeof body.image_data_url === "string" && body.image_data_url.startsWith("data:image/")) {
-        imagePath = await opts.saveImage(body.image_data_url);
+      const body = req.body as Partial<OrderInput> & {
+        image_data_url?: string;
+        image_data_urls?: string[];
+      };
+      const imageDataList = Array.isArray(body.image_data_urls)
+        ? body.image_data_urls
+        : typeof body.image_data_url === "string"
+          ? [body.image_data_url]
+          : [];
+      const imagePaths: string[] = [];
+      for (const imageData of imageDataList) {
+        if (typeof imageData === "string" && imageData.startsWith("data:image/")) {
+          imagePaths.push(await opts.saveImage(imageData));
+        }
       }
       const created = await opts.createOrder({
         delivery_date: String(body.delivery_date || ""),
@@ -65,7 +75,7 @@ export const startMobileServer = async (
         delivery_time_exact: body.delivery_time_exact || null,
         receiver_info: String(body.receiver_info || ""),
         buyer_info: String(body.buyer_info || ""),
-        product_image_path: imagePath,
+        product_image_paths: imagePaths,
         product_description: String(body.product_description || ""),
         card_message: body.card_message || null
       });

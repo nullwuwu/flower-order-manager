@@ -8,7 +8,7 @@ const sqlite = sqlite3.verbose();
 
 const DEFAULT_TEMPLATE_HTML = `
 <div class="sheet">
-  <h1>花店订单</h1>
+  <h1>倾城花艺</h1>
   <table class="order-table">
     <tbody>
       <tr><th>订单号</th><td><strong>{{order_id}}</strong></td></tr>
@@ -16,9 +16,9 @@ const DEFAULT_TEMPLATE_HTML = `
       <tr><th>配送时间</th><td>{{delivery_slot}} {{delivery_time_exact}}</td></tr>
       <tr><th>收货人信息</th><td>{{receiver_info}}</td></tr>
       <tr><th>订货人信息</th><td>{{buyer_info}}</td></tr>
+      {{image_block}}
       <tr><th>产品描述</th><td>{{product_description}}</td></tr>
       <tr><th>贺卡内容</th><td>{{card_message}}</td></tr>
-      {{image_block}}
     </tbody>
   </table>
 </div>
@@ -28,9 +28,12 @@ const DEFAULT_TEMPLATE_CSS = `
 body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; margin: 0; color: #222; }
 .sheet { width: 190mm; min-height: 277mm; margin: 0 auto; padding: 10mm; box-sizing: border-box; }
 h1 { margin: 0 0 10px; font-size: 22px; }
-.order-table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.5; }
+.order-table { width: 100%; border-collapse: collapse; font-size: 16px; line-height: 1.5; }
 .order-table th, .order-table td { border: 1px solid #ddd; padding: 7px 8px; text-align: left; vertical-align: top; }
-.order-table th { width: 96px; color: #555; background: #fafafa; white-space: nowrap; }
+.order-table th { width: 82px; color: #555; background: #fafafa; white-space: nowrap; }
+.product-image-grid { display: flex; gap: 8px; align-items: flex-start; }
+.product-image-grid.two-up { flex-wrap: nowrap; }
+.product-image-grid.two-up .product-image { flex: 1 1 0; width: auto; min-width: 0; }
 .product-image { width: 360px; height: 260px; object-fit: contain; border: 1px solid #ddd; }
 `;
 
@@ -106,13 +109,14 @@ export class DatabaseService {
         throw new Error(`字段 ${field} 不能为空`);
       }
     }
+    this.assertDeliveryDateNotPast(input.delivery_date);
 
     const now = dayjs().toISOString();
     const orderId = await this.generateOrderId(now);
     await this.run(
       `INSERT INTO orders (
         order_id, delivery_date, delivery_slot, delivery_time_exact,
-        receiver_info, buyer_info, product_image_path, product_description,
+        receiver_info, buyer_info, product_image_paths, product_description,
         card_message, print_count, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
@@ -122,7 +126,7 @@ export class DatabaseService {
         input.delivery_time_exact ?? null,
         input.receiver_info,
         input.buyer_info,
-        input.product_image_path ?? null,
+        this.serializeImagePaths(input.product_image_paths),
         input.product_description,
         input.card_message ?? null,
         now,
@@ -140,28 +144,75 @@ export class DatabaseService {
     const sql = unprintedOnly
       ? "SELECT * FROM orders WHERE print_count = 0 ORDER BY created_at DESC"
       : "SELECT * FROM orders ORDER BY created_at DESC";
-    return this.all<OrderRecord>(sql);
+    const rows = await this.all<OrderRecord>(sql);
+    return rows.map((row) => this.deserializeOrder(row));
+  }
+
+  async updateOrder(id: number, input: OrderInput): Promise<OrderRecord> {
+    const existing = await this.getOrderById(id);
+    if (!existing) {
+      throw new Error("订单不存在");
+    }
+    const requiredFields: Array<keyof OrderInput> = ["delivery_date"];
+    for (const field of requiredFields) {
+      const val = input[field];
+      if (!val || String(val).trim() === "") {
+        throw new Error(`字段 ${field} 不能为空`);
+      }
+    }
+    this.assertDeliveryDateNotPast(input.delivery_date);
+    const now = dayjs().toISOString();
+    const nextImagePaths = Array.isArray(input.product_image_paths)
+      ? input.product_image_paths
+      : existing.product_image_paths;
+    await this.run(
+      `UPDATE orders SET
+        delivery_date = ?, delivery_slot = ?, delivery_time_exact = ?,
+        receiver_info = ?, buyer_info = ?, product_image_paths = ?,
+        product_description = ?, card_message = ?, updated_at = ?
+      WHERE id = ?`,
+      [
+        input.delivery_date,
+        input.delivery_slot,
+        input.delivery_time_exact ?? null,
+        input.receiver_info,
+        input.buyer_info,
+        this.serializeImagePaths(nextImagePaths),
+        input.product_description,
+        input.card_message ?? null,
+        now,
+        id
+      ]
+    );
+    await this.cleanupOrphanImages(existing.product_image_paths ?? []);
+    const updated = await this.getOrderById(id);
+    if (!updated) {
+      throw new Error("订单更新失败");
+    }
+    return updated;
   }
 
   async deleteOrders(ids: number[]): Promise<number> {
     const uniqIds = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
     if (uniqIds.length === 0) return 0;
     const placeholders = uniqIds.map(() => "?").join(", ");
-    const images = await this.all<{ product_image_path: string }>(
-      `SELECT product_image_path FROM orders WHERE id IN (${placeholders}) AND product_image_path IS NOT NULL`,
+    const images = await this.all<{ product_image_paths: string }>(
+      `SELECT product_image_paths FROM orders WHERE id IN (${placeholders})`,
       uniqIds
     );
     const result = await this.run(`DELETE FROM orders WHERE id IN (${placeholders})`, uniqIds);
-    await this.cleanupOrphanImages(images.map((x) => x.product_image_path));
+    await this.cleanupOrphanImages(images.flatMap((x) => this.parseImagePaths(x.product_image_paths)));
     return result.changes;
   }
 
   async getOrderById(id: number): Promise<OrderRecord | undefined> {
-    return this.get<OrderRecord>("SELECT * FROM orders WHERE id = ?", [id]);
+    const row = await this.get<OrderRecord>("SELECT * FROM orders WHERE id = ?", [id]);
+    return row ? this.deserializeOrder(row) : undefined;
   }
 
   async getOrderByOrderId(orderId: string): Promise<OrderRecord | undefined> {
-    return this.get<OrderRecord>("SELECT * FROM orders WHERE order_id = ?", [orderId]);
+    const row = await this.get<OrderRecord>("SELECT * FROM orders WHERE order_id = ?", [orderId]);
+    return row ? this.deserializeOrder(row) : undefined;
   }
 
   async incrementPrintCount(id: number): Promise<void> {
@@ -234,12 +285,12 @@ export class DatabaseService {
 
   async cleanupExpiredOrders(days = 7): Promise<{ deleted: number; cutoff: string }> {
     const cutoff = dayjs().subtract(days, "day").toISOString();
-    const oldImages = await this.all<{ product_image_path: string }>(
-      "SELECT product_image_path FROM orders WHERE created_at < ? AND product_image_path IS NOT NULL",
+    const oldImages = await this.all<{ product_image_paths: string }>(
+      "SELECT product_image_paths FROM orders WHERE created_at < ?",
       [cutoff]
     );
     const result = await this.run("DELETE FROM orders WHERE created_at < ?", [cutoff]);
-    await this.cleanupOrphanImages(oldImages.map((x) => x.product_image_path));
+    await this.cleanupOrphanImages(oldImages.flatMap((x) => this.parseImagePaths(x.product_image_paths)));
     this.appendRetentionLog(cutoff, result.changes);
     return { deleted: result.changes, cutoff };
   }
@@ -257,12 +308,12 @@ export class DatabaseService {
 
   private async cleanupOrphanImages(pathsToCheck: string[]): Promise<void> {
     const uniq = [...new Set(pathsToCheck.filter(Boolean))];
+    const usedRows = await this.all<{ product_image_paths: string }>("SELECT product_image_paths FROM orders");
+    const usedSet = new Set(
+      usedRows.flatMap((row) => this.parseImagePaths(row.product_image_paths)).filter(Boolean)
+    );
     for (const imagePath of uniq) {
-      const stillUsed = await this.get<{ count: number }>(
-        "SELECT COUNT(*) as count FROM orders WHERE product_image_path = ?",
-        [imagePath]
-      );
-      if ((stillUsed?.count ?? 0) === 0) {
+      if (!usedSet.has(imagePath)) {
         try {
           fs.unlinkSync(imagePath);
         } catch {
@@ -275,6 +326,19 @@ export class DatabaseService {
   private appendRetentionLog(cutoff: string, deleted: number): void {
     const line = `[${dayjs().format("YYYY-MM-DD HH:mm:ss")}] cutoff=${cutoff} deleted=${deleted}\n`;
     fs.appendFileSync(this.logFile, line, "utf-8");
+  }
+
+  private assertDeliveryDateNotPast(deliveryDate: string): void {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(deliveryDate)) {
+      throw new Error("配送日期格式无效");
+    }
+    const picked = dayjs(`${deliveryDate}T00:00:00`);
+    if (!picked.isValid()) {
+      throw new Error("配送日期格式无效");
+    }
+    if (picked.isBefore(dayjs().startOf("day"))) {
+      throw new Error("配送日期不能早于今天");
+    }
   }
 
   private async ensureTemplateConfigColumn(): Promise<void> {
@@ -294,7 +358,7 @@ export class DatabaseService {
         delivery_time_exact TEXT,
         receiver_info TEXT NOT NULL,
         buyer_info TEXT NOT NULL,
-        product_image_path TEXT,
+        product_image_paths TEXT NOT NULL DEFAULT '[]',
         product_description TEXT NOT NULL,
         card_message TEXT,
         print_count INTEGER NOT NULL DEFAULT 0,
@@ -313,7 +377,7 @@ export class DatabaseService {
       "delivery_time_exact",
       "receiver_info",
       "buyer_info",
-      "product_image_path",
+      "product_image_paths",
       "product_description",
       "card_message",
       "print_count",
@@ -335,7 +399,7 @@ export class DatabaseService {
         delivery_time_exact TEXT,
         receiver_info TEXT NOT NULL,
         buyer_info TEXT NOT NULL,
-        product_image_path TEXT,
+        product_image_paths TEXT NOT NULL DEFAULT '[]',
         product_description TEXT NOT NULL,
         card_message TEXT,
         print_count INTEGER NOT NULL DEFAULT 0,
@@ -353,6 +417,30 @@ export class DatabaseService {
     );
     const nextSeq = row ? Number.parseInt(row.order_id.slice(-4), 10) + 1 : 1;
     return `${prefix}-${String(nextSeq).padStart(4, "0")}`;
+  }
+
+  private serializeImagePaths(paths?: string[] | null): string {
+    if (!paths || paths.length === 0) return "[]";
+    return JSON.stringify(paths.map((x) => String(x)).filter(Boolean));
+  }
+
+  private parseImagePaths(raw: string | null | undefined): string[] {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map((x) => String(x)).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  private deserializeOrder(row: OrderRecord): OrderRecord {
+    const rec = row as unknown as Record<string, unknown>;
+    return {
+      ...row,
+      product_image_paths: this.parseImagePaths(String(rec.product_image_paths ?? "[]"))
+    };
   }
 
   private run(sql: string, params: unknown[] = []): Promise<RunResult> {

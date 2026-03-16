@@ -12,7 +12,7 @@ export interface OrderInput {
   delivery_time_exact?: string | null;
   receiver_info: string;
   buyer_info: string;
-  product_image_path?: string | null;
+  product_image_paths?: string[];
   product_description: string;
   card_message?: string | null;
 }

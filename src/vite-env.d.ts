@@ -13,7 +13,9 @@ declare global {
       listOrders: (unprintedOnly?: boolean) => Promise<import("./types").OrderRecord[]>;
       deleteOrders: (ids: number[]) => Promise<{ deleted: number }>;
       createOrder: (payload: OrderInput) => Promise<import("./types").OrderRecord>;
+      updateOrder: (id: number, payload: OrderInput) => Promise<import("./types").OrderRecord>;
       saveImage: (dataUrl: string) => Promise<string>;
+      readImageDataUrl: (filePath: string) => Promise<string>;
       getImageSaveDir: () => Promise<string>;
       chooseImageSaveDir: () => Promise<string>;
       openImageSaveDir: () => Promise<boolean>;
